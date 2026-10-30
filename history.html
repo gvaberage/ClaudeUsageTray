@@ -1,0 +1,481 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude usage history</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f3f0;
+  --surface: #fcfcfb;
+  --border: #e2e0da;
+  --grid: #ebe9e4;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --muted: #8a8882;
+  --week: #2a78d6;
+  --session: #eb6834;
+  --select: rgba(42, 120, 214, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110;
+    --surface: #1a1a19;
+    --border: #2e2d2b;
+    --grid: #262624;
+    --text: #f0efec;
+    --text-2: #c3c2b7;
+    --muted: #85847d;
+    --week: #3987e5;
+    --session: #d95926;
+    --select: rgba(57, 135, 229, .18);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 32px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+button, input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.on { border-color: var(--week); box-shadow: inset 0 0 0 1px var(--week); }
+.sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.chart-wrap { position: relative; height: 420px; padding: 8px 0 0; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.legend { display: flex; gap: 16px; padding: 10px 16px 0; color: var(--text-2); font-size: 13px; }
+.legend label { display: flex; gap: 6px; align-items: center; cursor: pointer; user-select: none; }
+.key { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
+#tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+       padding: 6px 10px; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; white-space: nowrap; }
+#tip .t { color: var(--text-2); margin-bottom: 2px; }
+#tip b { font-weight: 600; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+.stat { padding: 14px 16px; }
+.stat .label { color: var(--text-2); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.stat .big { font-size: 28px; font-weight: 600; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.stat .sub { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.empty { padding: 60px 16px; text-align: center; color: var(--text-2); }
+.head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.head h1 { margin: 0; }
+#lang { font-size: 12px; padding: 3px 8px; color: var(--text-2); }
+.help { border-top: 1px solid var(--border); margin-top: 6px; padding: 8px 16px 12px; font-size: 13px; color: var(--text-2); }
+.help summary { cursor: pointer; color: var(--text-2); user-select: none; }
+.help dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 10px 0 8px; }
+.help dt { white-space: nowrap; }
+.help dd { margin: 0; }
+.help p { margin: 0; color: var(--muted); }
+kbd { font: 12px/1 "Segoe UI", system-ui, sans-serif; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+      border-bottom-width: 2px; border-radius: 4px; padding: 2px 6px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <h1 data-i18n="title"></h1>
+    <button id="lang" title="Language / Язык"></button>
+  </div>
+  <div class="row">
+    <button data-range="6" data-i18n="r6"></button>
+    <button data-range="24" data-i18n="r24"></button>
+    <button data-range="168" data-i18n="r168"></button>
+    <button data-range="720" data-i18n="r720"></button>
+    <button data-range="all" data-i18n="rAll"></button>
+    <span class="sep"></span>
+    <input type="datetime-local" id="from">
+    <span>—</span>
+    <input type="datetime-local" id="to">
+    <span class="sep"></span>
+    <button id="back" data-i18n="back"></button>
+  </div>
+  <div class="card">
+    <div class="legend">
+      <label><input type="checkbox" id="showWeek" checked><span class="key" style="background:var(--week)"></span><span data-i18n="week"></span></label>
+      <label><input type="checkbox" id="showSession" checked><span class="key" style="background:var(--session)"></span><span data-i18n="session"></span></label>
+    </div>
+    <div class="chart-wrap"><canvas id="c"></canvas><div id="tip"></div></div>
+    <details class="help" id="help" open>
+      <summary data-i18n="help"></summary>
+      <dl id="helpList"></dl>
+      <p data-i18n="helpSpent"></p>
+    </details>
+  </div>
+  <div class="stats">
+    <div class="card stat"><div class="label" data-i18n="period"></div><div class="big" id="sDur">—</div><div class="sub" id="sRange"></div></div>
+    <div class="card stat"><div class="label"><span class="key" style="background:var(--week)"></span><span data-i18n="spentWeek"></span></div><div class="big" id="sWeek">—</div><div class="sub" id="sWeekSub"></div></div>
+    <div class="card stat"><div class="label"><span class="key" style="background:var(--session)"></span><span data-i18n="spentSess"></span></div><div class="big" id="sSess">—</div><div class="sub" id="sSessSub"></div></div>
+  </div>
+</main>
+<script src="history-data.js"></script>
+<script>
+'use strict';
+const I18N = {
+  en: {
+    title: 'Claude usage history', r6: '6 hours', r24: 'Day', r168: 'Week', r720: 'Month', rAll: 'All',
+    back: '← Back', backTip: 'Previous zoom', from: 'From', to: 'To',
+    week: 'Weekly', session: 'Session (5 h)', tipWeek: 'weekly', tipSess: 'session',
+    period: 'Period', spentWeek: 'Weekly limit used', spentSess: 'Session limit used (total)',
+    noData: 'no data for this period', resets: 'resets', perDay: '% a day', sessions: 'sessions ended',
+    d: 'd', h: 'h', min: 'min',
+    empty: 'No data yet. The tray adds a point every time a percentage changes (it checks every 3 minutes).',
+    help: 'Controls',
+    keys: [
+      [['Wheel'], 'over the chart — zoom both axes'],
+      [['Wheel'], 'over an axis — zoom only that axis (time at the bottom, percent on the left)'],
+      [['Left drag'], 'move the chart'],
+      [['Right drag'], 'zoom: right / left — time, up / down — percent'],
+      [['Shift', 'Left drag'], 'select a period and zoom into it'],
+      [['Double click'], 'show everything'],
+      [['← Back'], 'previous zoom'],
+    ],
+    helpSpent: 'The cards below count usage over the visible period: the sum of all increases, so a limit reset in the middle is handled correctly.',
+  },
+  ru: {
+    title: 'Расход лимитов Claude', r6: '6 часов', r24: 'Сутки', r168: 'Неделя', r720: 'Месяц', rAll: 'Всё',
+    back: '← Назад', backTip: 'Вернуть предыдущий масштаб', from: 'С', to: 'По',
+    week: 'Неделя', session: 'Сессия (5 ч)', tipWeek: 'неделя', tipSess: 'сессия',
+    period: 'Период', spentWeek: 'Потрачено недели', spentSess: 'Потрачено сессий (сумма)',
+    noData: 'нет данных за период', resets: 'сбросов', perDay: '% в сутки', sessions: 'сессий сменилось',
+    d: 'д', h: 'ч', min: 'мин',
+    empty: 'Данных пока нет. Трей записывает точку каждый раз, когда меняются проценты (проверка раз в 3 минуты).',
+    help: 'Управление',
+    keys: [
+      [['Колесо'], 'над графиком — масштаб по обеим осям'],
+      [['Колесо'], 'над осью — масштаб только этой оси (время — внизу, проценты — слева)'],
+      [['ЛКМ', 'тянуть'], 'двигать график'],
+      [['ПКМ', 'тянуть'], 'масштаб: вправо / влево — время, вверх / вниз — проценты'],
+      [['Shift', 'ЛКМ'], 'выделить период и приблизить его'],
+      [['Двойной клик'], 'показать всё'],
+      [['← Назад'], 'предыдущий масштаб'],
+    ],
+    helpSpent: 'Карточки внизу считают расход за видимый период: сумму всех приростов, поэтому сброс лимита посередине учитывается правильно.',
+  },
+};
+// Language: page toggle > tray setting > browser
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+let lang = store.get('lang') || window.HISTORY_LANG || ((navigator.language || '').startsWith('ru') ? 'ru' : 'en');
+if (!I18N[lang]) lang = 'en';
+const L = () => I18N[lang];
+
+// Data: lines "time,session,week", written by the tray only when a percent changes.
+const pts = [];
+const raw = window.HISTORY_CSV;
+for (const line of String((raw && raw.value) || raw || '').split(/\r?\n/)) {
+  const m = line.match(/^([^,]+),(\d+),(\d+)$/);
+  if (m) { const t = Date.parse(m[1]); if (!isNaN(t)) pts.push({ t, s: +m[2], w: +m[3] }); }
+}
+pts.sort((a, b) => a.t - b.t);
+const poll = Date.parse(window.HISTORY_POLL || '');
+// The last known value holds until the last poll (or now, if the tray didn't say)
+const tEnd = Math.max(isNaN(poll) ? Date.now() : poll, pts.length ? pts[pts.length - 1].t : 0);
+const tStart = pts.length ? pts[0].t : tEnd - 864e5;
+
+const $ = id => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d'), tip = $('tip');
+let view = { a: Math.max(tStart, tEnd - 864e5), b: tEnd, lo: 0, hi: 100 };
+const undo = [];
+let hoverX = null, drag = null;
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const pad = { l: 44, r: 16, t: 10, b: 28 };
+const W = () => cv.clientWidth, H = () => cv.clientHeight;
+const x2t = x => view.a + (x - pad.l) / (W() - pad.l - pad.r) * (view.b - view.a);
+const t2x = t => pad.l + (t - view.a) / (view.b - view.a) * (W() - pad.l - pad.r);
+const v2y = v => pad.t + (1 - (v - view.lo) / (view.hi - view.lo)) * (H() - pad.t - pad.b);
+const y2v = y => view.lo + (1 - (y - pad.t) / (H() - pad.t - pad.b)) * (view.hi - view.lo);
+
+const p2 = n => String(n).padStart(2, '0');
+const fmtTime = t => { const d = new Date(t); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+const fmtDate = t => { const d = new Date(t); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}`; };
+const fmtFull = t => `${fmtDate(t)} ${fmtTime(t)}`;
+const fmtDur = ms => {
+  const m = Math.round(ms / 6e4), d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60), mm = m % 60;
+  return [d && `${d} ${L().d}`, h && `${h} ${L().h}`, !d && mm && `${mm} ${L().min}`].filter(Boolean).join(' ') || `0 ${L().min}`;
+};
+const toLocalInput = t => { const d = new Date(t); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${fmtTime(t)}`; };
+
+// Index of the last point at or before t (-1 if none)
+function idxAt(t) {
+  let lo = 0, hi = pts.length - 1, r = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (pts[m].t <= t) { r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+
+// Spent within [a, b]: sum of rises; a drop means the limit was reset.
+function spent(key, a, b) {
+  let i = idxAt(a);
+  let start = i >= 0 ? pts[i][key] : null;
+  let prev = start, sum = 0, resets = 0;
+  for (let j = i + 1; j < pts.length && pts[j].t <= b; j++) {
+    const v = pts[j][key];
+    if (prev === null) { start = prev = v; continue; }   // no data before the range: count from the first point
+    if (v > prev) sum += v - prev; else if (v < prev) resets++;
+    prev = v;
+  }
+  return { start, end: prev, sum, resets };
+}
+
+const STEPS = [6e4, 3e5, 6e5, 18e5, 36e5, 108e5, 216e5, 432e5, 864e5, 1728e5, 6048e5, 2592e6];
+function draw() {
+  const dpr = window.devicePixelRatio || 1, w = W(), h = H();
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = '12px "Segoe UI", system-ui, sans-serif';
+  const pw = w - pad.l - pad.r;
+
+  // Y grid: roughly one line per 45 px
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const ph = h - pad.t - pad.b;
+  const ystep = [1, 2, 5, 10, 20, 25].find(s => (view.hi - view.lo) / s <= ph / 45) || 25;
+  for (let v = Math.ceil(view.lo / ystep) * ystep; v <= view.hi + 1e-9; v += ystep) {
+    const y = Math.round(v2y(v)) + .5;
+    ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+    ctx.fillStyle = css('--muted'); ctx.fillText(v + '%', pad.l - 6, y);
+  }
+
+  // X ticks: aligned to local time, roughly one per 100 px
+  const span = view.b - view.a;
+  const step = STEPS.find(s => span / s <= pw / 100) || STEPS[STEPS.length - 1];
+  const tz = new Date().getTimezoneOffset() * 6e4;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let t = Math.ceil((view.a - tz) / step) * step + tz; t <= view.b; t += step) {
+    const x = Math.round(t2x(t)) + .5, d = new Date(t);
+    const midnight = d.getHours() === 0 && d.getMinutes() === 0;
+    ctx.strokeStyle = css('--grid');
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, h - pad.b); ctx.stroke();
+    ctx.fillStyle = midnight ? css('--text-2') : css('--muted');
+    ctx.fillText(step >= 864e5 || midnight ? fmtDate(t) : fmtTime(t), x, h - pad.b + 6);
+  }
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(pad.l, pad.t - 2, pw, ph + 4); ctx.clip();
+
+  // Selection being dragged
+  if (drag && drag.kind === 'select') {
+    const x1 = Math.min(drag.x0, drag.x1), x2 = Math.max(drag.x0, drag.x1);
+    ctx.fillStyle = css('--select'); ctx.fillRect(x1, pad.t, x2 - x1, h - pad.t - pad.b);
+  }
+
+  if (pts.length) {
+    if ($('showSession').checked) series('s', css('--session'), 1.5, false);
+    if ($('showWeek').checked) series('w', css('--week'), 2, true);
+  }
+
+  // Crosshair
+  if (hoverX !== null && !drag) {
+    ctx.strokeStyle = css('--muted'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(Math.round(hoverX) + .5, pad.t); ctx.lineTo(Math.round(hoverX) + .5, h - pad.b); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+// Step line: a value holds until the next change
+function series(key, color, lw, fill) {
+  const i0 = Math.max(0, idxAt(view.a)), i1 = Math.min(pts.length - 1, idxAt(view.b) + 1);
+  const path = new Path2D();
+  path.moveTo(t2x(pts[i0].t), v2y(pts[i0][key]));
+  for (let i = i0 + 1; i <= i1; i++) {
+    const xi = t2x(pts[i].t);
+    path.lineTo(xi, v2y(pts[i - 1][key]));
+    path.lineTo(xi, v2y(pts[i][key]));
+  }
+  const last = pts[i1];
+  const xEnd = t2x(i1 === pts.length - 1 ? tEnd : pts[i1].t);
+  path.lineTo(xEnd, v2y(last[key]));
+  if (fill) {
+    const area = new Path2D(path);
+    area.lineTo(xEnd, v2y(0)); area.lineTo(t2x(pts[i0].t), v2y(0)); area.closePath();
+    ctx.globalAlpha = .12; ctx.fillStyle = color; ctx.fill(area); ctx.globalAlpha = 1;
+  }
+  ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.lineJoin = 'round';
+  ctx.stroke(path);
+}
+
+function updateStats() {
+  $('from').value = toLocalInput(view.a);
+  $('to').value = toLocalInput(view.b);
+  $('sDur').textContent = fmtDur(view.b - view.a);
+  $('sRange').textContent = `${fmtFull(view.a)} — ${fmtFull(view.b)}`;
+  if (!pts.length) return;
+  const w = spent('w', view.a, view.b), s = spent('s', view.a, view.b);
+  const days = (view.b - view.a) / 864e5;
+  if (w.start === null) {
+    $('sWeek').textContent = '—'; $('sWeekSub').textContent = L().noData;
+    $('sSess').textContent = '—'; $('sSessSub').textContent = '';
+    return;
+  }
+  $('sWeek').textContent = `+${w.sum}%`;
+  $('sWeekSub').textContent = `${w.start}% → ${w.end}%` + (w.resets ? ` · ${L().resets}: ${w.resets}` : '')
+    + (days >= 1 ? ` · ≈${(w.sum / days).toFixed(1)}${L().perDay}` : '');
+  $('sSess').textContent = `+${s.sum}%`;
+  $('sSessSub').textContent = `${s.start}% → ${s.end}%` + (s.resets ? ` · ${L().sessions}: ${s.resets}` : '');
+}
+
+// Keep [a, b] at least `min` wide and inside [lo, hi]
+function clampRange(a, b, min, lo, hi) {
+  if (b - a < min) { const m = (a + b) / 2; a = m - min / 2; b = m + min / 2; }
+  if (b - a > hi - lo) return [lo, hi];
+  if (a < lo) { b += lo - a; a = lo; }
+  if (b > hi) { a -= b - hi; b = hi; }
+  return [a, b];
+}
+
+// y range is optional: presets keep the current one unless told otherwise
+function setView(a, b, remember = true, lo = view.lo, hi = view.hi) {
+  [a, b] = clampRange(a, b, 6e5, tStart - 36e5, tEnd + 36e5);   // at least 10 minutes
+  [lo, hi] = clampRange(lo, hi, 2, -2, 102);                       // at least 2%
+  if (remember) pushUndo();
+  view = { a, b, lo, hi };
+  for (const btn of document.querySelectorAll('[data-range]')) btn.classList.remove('on');
+  draw(); updateStats();
+}
+
+function showTip(x) {
+  const t = x2t(x), i = idxAt(t);
+  if (!pts.length || i < 0 || t > tEnd) { tip.style.display = 'none'; return; }
+  tip.replaceChildren();
+  const head = document.createElement('div'); head.className = 't'; head.textContent = fmtFull(t); tip.append(head);
+  for (const [k, name, color] of [['w', L().tipWeek, '--week'], ['s', L().tipSess, '--session']]) {
+    const row = document.createElement('div');
+    const key = document.createElement('span'); key.className = 'key'; key.style.background = `var(${color})`; key.style.marginRight = '6px'; key.style.verticalAlign = 'middle';
+    const b = document.createElement('b'); b.textContent = pts[i][k] + '%';
+    row.append(key, b, ' ' + name);
+    tip.append(row);
+  }
+  tip.style.display = 'block';
+  const left = x + 14 + tip.offsetWidth > W() ? x - 14 - tip.offsetWidth : x + 14;
+  tip.style.left = left + 'px'; tip.style.top = '20px';
+}
+
+function pushUndo() { undo.push({ ...view }); if (undo.length > 50) undo.shift(); }
+
+// Mouse, OxyPlot-style: wheel over an axis zooms that axis, over the plot both (gentler);
+// LMB drags, RMB drag zooms (horizontal motion → time, vertical → percent), Shift+LMB selects a period.
+const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+function zone(x, y) {
+  if (x < pad.l && y < H() - pad.b) return 'y';
+  if (y > H() - pad.b && x >= pad.l) return 'x';
+  return 'plot';
+}
+const CURSOR = { x: 'ew-resize', y: 'ns-resize', plot: 'grab' };
+// Zoom around (t, v) by factors kx, ky (>1 = zoom out)
+function zoomAt(t, v, kx, ky, base = view) {
+  setView(t - (t - base.a) * kx, t + (base.b - t) * kx, false, v - (v - base.lo) * ky, v + (base.hi - v) * ky);
+}
+
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId);
+  const [x, y] = pos(e);
+  const start = { x0: x, y0: y, t: x2t(x), v: y2v(y), view: { ...view } };
+  if (e.button === 2) drag = { kind: 'zoom', ...start };
+  else if (e.button === 0 && e.shiftKey) drag = { kind: 'select', ...start, x1: x };
+  else if (e.button === 0) { drag = { kind: 'pan', ...start }; cv.style.cursor = 'grabbing'; }
+  tip.style.display = 'none';
+});
+cv.addEventListener('pointermove', e => {
+  const [x, y] = pos(e);
+  if (!drag) {
+    const z = zone(x, y);
+    cv.style.cursor = CURSOR[z];
+    hoverX = z === 'plot' && x <= W() - pad.r ? x : null;
+    draw();
+    if (hoverX !== null) showTip(x); else tip.style.display = 'none';
+    return;
+  }
+  const v0 = drag.view, pw = W() - pad.l - pad.r, ph = H() - pad.t - pad.b;
+  if (drag.kind === 'pan') {
+    const dt = (x - drag.x0) / pw * (v0.b - v0.a), dv = (y - drag.y0) / ph * (v0.hi - v0.lo);
+    setView(v0.a - dt, v0.b - dt, false, v0.lo + dv, v0.hi + dv);
+  } else if (drag.kind === 'zoom') {
+    // drag right / up = zoom in
+    zoomAt(drag.t, drag.v, Math.exp(-(x - drag.x0) * .006), Math.exp((y - drag.y0) * .006), v0);
+  } else { drag.x1 = x; draw(); }
+});
+cv.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  cv.style.cursor = 'grab';
+  if (d.kind === 'select' && Math.abs(d.x1 - d.x0) > 5) {
+    view = d.view;
+    setView(x2t(Math.min(d.x0, d.x1)), x2t(Math.max(d.x0, d.x1)));
+  } else if (d.kind !== 'select' && (view.a !== d.view.a || view.b !== d.view.b || view.lo !== d.view.lo || view.hi !== d.view.hi)) {
+    undo.push(d.view);
+  }
+  draw();
+});
+cv.addEventListener('pointerleave', () => { if (!drag) { hoverX = null; tip.style.display = 'none'; draw(); } });
+cv.addEventListener('dblclick', () => setView(tStart, tEnd, true, 0, 100));
+
+// Wheel: vertical only (sideways trackpad scroll is ignored), continuous so trackpads stay smooth
+let wheelTimer = null;
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (!e.deltaY) return;
+  if (!wheelTimer) pushUndo();
+  clearTimeout(wheelTimer); wheelTimer = setTimeout(() => wheelTimer = null, 400);
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+  const d = e.deltaY * unit;
+  const [x, y] = pos(e), z = zone(x, y);
+  const k = Math.exp(Math.max(-60, Math.min(60, d)) * (z === 'plot' ? .0012 : .002));   // mouse notch ≈ ×1.13 / ×1.22
+  zoomAt(x2t(x), y2v(y), z === 'y' ? 1 : k, z === 'x' ? 1 : k);
+  if (z === 'plot') showTip(x);
+}, { passive: false });
+
+// Controls
+for (const btn of document.querySelectorAll('[data-range]')) {
+  btn.addEventListener('click', () => {
+    const r = btn.dataset.range;
+    if (r === 'all') setView(tStart, tEnd, true, 0, 100); else setView(tEnd - r * 36e5, tEnd, true, 0, 100);
+    btn.classList.add('on');
+  });
+}
+$('back').addEventListener('click', () => { const v = undo.pop(); if (v) setView(v.a, v.b, false, v.lo, v.hi); });
+for (const id of ['from', 'to']) {
+  $(id).addEventListener('change', () => {
+    const a = Date.parse($('from').value), b = Date.parse($('to').value);
+    if (!isNaN(a) && !isNaN(b) && b > a) setView(a, b);
+  });
+}
+for (const id of ['showWeek', 'showSession']) $(id).addEventListener('change', draw);
+window.addEventListener('resize', draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = L().title;
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = L()[el.dataset.i18n];
+  $('back').title = L().backTip;
+  $('from').setAttribute('aria-label', L().from);
+  $('to').setAttribute('aria-label', L().to);
+  $('lang').textContent = lang === 'ru' ? 'EN' : 'RU';
+  const dl = $('helpList');
+  dl.replaceChildren();
+  for (const [keys, what] of L().keys) {
+    const dt = document.createElement('dt');
+    keys.forEach((k, i) => { if (i) dt.append(' + '); const kb = document.createElement('kbd'); kb.textContent = k; dt.append(kb); });
+    const dd = document.createElement('dd'); dd.textContent = what;
+    dl.append(dt, dd);
+  }
+  updateStats(); draw();
+}
+$('lang').addEventListener('click', () => { lang = lang === 'ru' ? 'en' : 'ru'; store.set('lang', lang); applyLang(); });
+// Remember whether the controls help is folded
+if (store.get('helpOpen') === '0') $('help').open = false;
+$('help').addEventListener('toggle', () => store.set('helpOpen', $('help').open ? '1' : '0'));
+
+if (!pts.length) {
+  document.querySelector('.chart-wrap').innerHTML = '<div class="empty" data-i18n="empty"></div>';
+}
+setView(view.a, view.b, false);
+applyLang();
+document.querySelector('[data-range="24"]').classList.add('on');
+</script>
+</body>
+</html>
